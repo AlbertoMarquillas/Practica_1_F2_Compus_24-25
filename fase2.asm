@@ -1,15 +1,15 @@
 ;**********
-;CAP�ALERES   
+;CAPÇALERES   
 ;**********
-    LIST P=PIC18F4321 F=INHX32
-    #include <p18f4321.inc>
+LIST P=PIC18F4321 F=INHX32
+#include <p18f4321.inc>
 
-    ;**************
-    ;CONFIGURACIONS 
-    ;**************
-    CONFIG OSC = HSPLL    ; 40MHz
-    CONFIG PBADEN = DIG   ; PORTB
-    CONFIG WDT = OFF 
+;**************
+;CONFIGURACIONS 
+;**************
+CONFIG OSC = HSPLL    ; 40MHz
+CONFIG PBADEN = DIG   ; PORTB
+CONFIG WDT = OFF 
 
 ;**********
 ;VARIABLES
@@ -26,26 +26,30 @@ FLAGS_INT EQU 0x0009 ;Flgs que venen de les interrupcions
 COMPTADOR_500MS_L EQU 0x000A
 COMPTADOR_500MS_H EQU 0x000B
 COMPT_ESPERA_TRIGGER EQU 0x000C ;Comptador per generar trigger
-COMPTADOR_2S_H EQU 0x000D
-COMPTADOR_2S_L EQU 0x000E
-COMPTADOR_1S_H EQU 0x000F
-COMPTADOR_1S_L EQU 0x0010
-    ;******************************
-    ;VECTORS DE RESET I INTERRUPCI� 
-    ;******************************
-    ORG 0x000
-    GOTO MAIN
-    ORG 0X0008
-    GOTO HIGH_RSI
-    ORG 0X0018
-    RETFIE FAST
-
-
+COMPTADOR_DURATION_H EQU 0x000D
+COMPTADOR_DURATION_L EQU 0x000E
+COMPT_ACK EQU 0X000F
+COMPT_CM EQU 0X0010
+COMPT_ESPERA_60US EQU 0X0011
+NOTA_TROBADA EQU 0X0012
+ 
+;******************************
+;VECTORS DE RESET I INTERRUPCIÓ 
+;******************************
+ORG 0x000
+GOTO MAIN
+ORG 0X0008
+GOTO HIGH_RSI
+ORG 0X0018
+RETFIE FAST
+ 
+;------------------------------------MAIN------------------------------------
+ 
 ;**********************
-;CONFIGURACI� DE PORTS  
+;CONFIGURACIÓ DE PORTS  
 ;**********************
 CONFIG_PORTS
-    ;PORT A -> Pins anal�gics: RA0, RA1, RA2, RA3, RA5; Pins d'oscil�lador: RA6, RA7
+    ;PORT A -> Pins analògics: RA0, RA1, RA2, RA3, RA5; Pins d'oscil·lador: RA6, RA7
     BCF TRISA,0,0   ; Sortida  --  Length_0 (Led)
     BCF TRISA,1,0   ; Sortida  --  Length_1 (Led)
     BCF TRISA,3,0   ; Sortida  --  Answer Correct (Led RA3)
@@ -55,7 +59,7 @@ CONFIG_PORTS
     BCF TRISA,5,0   ; Sortida  --  GameScore (Servo)
     ;Pins RA6, RA7 no s'utilitzen per HSPLL
     
-    ;PORT B - Entrades -> Pins d'interrupci�: RB0, RB1, RB2 ; Pins anal�gics: RB0, RB1, RB2, RB3, RB4
+    ;PORT B - Entrades -> Pins d'interrupció: RB0, RB1, RB2 ; Pins analògics: RB0, RB1, RB2, RB3, RB4
     BSF TRISB,0,0   ; Entrada --  NewNote (Ve de la F1)
     BSF TRISB,1,0   ; Entrada --  StartGame (Ve de la F1)
     BSF TRISB,2,0   ; Entrada --  Echo (Ultrasons)
@@ -90,13 +94,11 @@ INIT_PORTS         ; Init sortides dels ports
 ;INICIALITZAR VARIABLES 
 ;***********************
 INIT_VARS
-    BCF FLAGS, 0, 0 ;Posem a 0 el bit 0 de la variable Flags -> Indica quan el joc ha comen�at (START GAME ES ACTIU)
+    BCF FLAGS, 0, 0 ;Posem a 0 el bit 0 de la variable Flags -> Indica quan el joc ha començat (START GAME ES ACTIU)
     BCF FLAGS, 1, 0 ;Posem a 0 el bit 1 de la variable Flags -> Indica que s'han de comptar 3 segons
     BCF FLAGS, 2, 0 ;Posem a 0 el bit 2 de la variable Flags -> Indica quan s'ha de fer algo amb el servo
     BCF FLAGS, 3, 0 ;Posem a 0 el bit 3 de la variable Flags -> Indica quan s'ha de fer algo amb l'altaveu
     BCF FLAGS, 4, 0 ;Posem a 0 el bit 4 de la variable Flags -> Indica quan s'han de comptar 500ms
-    BCF FLAGS, 5, 0 ;Posem a 0 el bit 5 de la variable Flags -> Indica quan s'ha de comptar 1 segon
-    BCF FLAGS, 6, 0 ;Posem a 0 el bit 6 de la variable Flags -> Indica quan s'han de comptar 2 segons
 
     CLRF NUM_NOTES
     CLRF LECTURA 
@@ -105,34 +107,33 @@ INIT_VARS
     CLRF DURATION_LLEGIDA 
     CLRF COMPTADOR_500MS_L
     CLRF COMPTADOR_500MS_H 
-    CLRF COMPTADOR_1S_L
-    CLRF COMPTADOR_1S_H 
-    CLRF COMPTADOR_2S_L
-    CLRF COMPTADOR_2S_H 
+    CLRF COMPTADOR_DURATION_L
+    CLRF COMPTADOR_DURATION_H 
     CLRF COMPTADOR_3S_L
     CLRF COMPTADOR_3S_H 
+    CLRF COMPT_ACK
+    CLRF COMPT_CM
     BCF FLAGS_INT, 0, 0 ;Posem a 0 el bit 0 de la variable Flags_Int -> Indica quan s'han comptat els 3 segons    
-    BCF FLAGS_INT, 1, 0 ;Posem a 0 el bit 1 de la variable Flags_Int -> Indica quan s'ha comptat 1 segons
-    BCF FLAGS_INT, 2, 0 ;Posem a 0 el bit 2 de la variable Flags_Int -> Indica quan s'han comptat els 2 segons
+    BCF FLAGS_INT, 1, 0 ;Posem a 0 el bit 1 de la variable Flags_Int -> Indica quan s'ha comptat duracio
     BCF FLAGS_INT, 3, 0 ;Posem a 0 el bit 3 de la variable Flags_Int -> Indica quan s'han comptat els 500 milisegons
 
     SETF PORTD ;Netejem tot el port D per no encende el display 7-segments
     RETURN
-
+    
 ;****************************
-;CONFIGURACI� D'INTERRUPCIONS  
+;CONFIGURACIÓ D'INTERRUPCIONS  
 ;****************************
 CONFIG_INTERRUPTS
     ; Activar Interrupcions
     BSF INTCON,7,0   ; Unmasked
     BSF INTCON,6,0   ;High
-    ; Activo interrupci� RB0 i indico que es per flanc de baixada (NewNote)
-    BSF INTCON, INT0IE,0    ; Activo interrupci� RB0
+    ; Activo interrupció RB0 i indico que es per flanc de baixada (NewNote)
+    BSF INTCON, INT0IE,0    ; Activo interrupció RB0
     BCF INTCON2, INTEDG0,0  ; Indico flanc de baixada
-    ;Activo interrupci� RBI (StartGame)
-    BSF INTCON3, INT1IE, 0  ; Activo interrupci� RB1
-    ;Activo interrupci� TMR0
-    BSF INTCON, TMR0IE, 0   ; Activo interrupci� TMR0
+    ;Activo interrupció RBI (StartGame)
+    BSF INTCON3, INT1IE, 0  ; Activo interrupció RB1
+    ;Activo interrupció TMR0
+    BSF INTCON, TMR0IE, 0   ; Activo interrupció TMR0
     
     RETURN
     
@@ -142,10 +143,10 @@ CONFIG_INTERRUPTS
 PUNTER_RAM
     MOVLW .1
     MOVWF FSR0H,0   ; Inicialitzar al banc 1 el punter d'escriptura de la RAM
-    CLRF FSR0L,0    ; Inicialitzar el punter a l'adre�a 0
+    CLRF FSR0L,0    ; Inicialitzar el punter a l'adreça 0
     MOVLW .1
     MOVWF FSR1H,0   ; Incialitzar al banc 1 el punter de lectura de la RAM
-    CLRF FSR1L,0    ; Inicialitzar el punter a l'adre�a 0
+    CLRF FSR1L,0    ; Inicialitzar el punter a l'adreça 0
     
     RETURN
 
@@ -178,139 +179,371 @@ INIT_TMR0
     ;Bit 2-0: Prescale value
     MOVWF T0CON, 0
     RETURN
+;------------------------------------FUNCIONS INIT COMPTADORS------------------------------------
+;**********************************
+;INICIALITZAR COMPTADOR DE 500MS
+;**********************************
+INIT_COMPT_500MS
+	;Interrupcions de 500u per aribar a 500ms -> 500ms/500us = 1000
+	;2 registres 65535
+	;1000 d = 0011 1110 1000 b
+	MOVLW HIGH(.1000)
+	MOVWF COMPTADOR_500MS_H, 0
+	MOVLW LOW(.1000)
+	MOVWF COMPTADOR_500MS_L, 0
 
-;****************
-;ACCIO DEL TMR0
-;****************
-ACTION_TMR0
-
-    BCF INTCON, TMR0IF, 0 ;Netejem el flag
-    CALL CARREGA_TMR0 ;Carreguem el valor del tmr0 de nou
-
-    BTFSC FLAGS, 1, 0 ;Mirem el Flag de comptar 3 segons
-    CALL COMPTAR_3S
-
-    BTFSC FLAGS, 2, 0 ;Mirem el Flag d'activar el servo
-    CALL SERVO
+	RETURN
+;*************************************************
+;INICIALITZAR COMPTADOR DE 1 SEGON PER LA DURACIO
+;*************************************************
+INIT_COMPT_1S_DURATION
+	;Interrupcuins de 500u per arribar a 3s -> 2s/500us = 2000
+	;2 registres 65535
+	MOVLW HIGH(.2000)
+	MOVWF COMPTADOR_1S_H, 0
+	MOVLW LOW(.2000)
+	MOVWF COMPTADOR_1S_L, 0
     
-    BTFSC FLAGS, 3, 0 ;Mirem el Flag d'activar l'altaveu
-    CALL ALTAVEU
+	RETURN
+;**************************************************
+;INICIALITZAR COMPTADOR DE 2 SEGONS PER LA DURACIO
+;**************************************************
+INIT_COMPT_2S_DURATION
+	;Interrupcuins de 500u per arribar a 3s -> 2s/500us = 4000
+	;2 registres 65535
+	MOVLW HIGH(.4000)
+	MOVWF COMPTADOR_2S_H, 0
+	MOVLW LOW(.4000)
+	MOVWF COMPTADOR_2S_L, 0
     
-    BTFSC FLAGS, 4, 0 ;Mirem el Flag de comptar 500ms
-    CALL COMPTAR_500MS
-
-    BTFSC FLAGS, 5, 0 ;Mirem el Flag de comptar 1 segon
-    CALL COMPTAR_3S
+	RETURN
+;**************************************************
+;INICIALITZAR COMPTADOR DE 3 SEGONS PER LA DURACIO
+;**************************************************
+INIT_COMPT_3S_DURATION
+	;Interrupcuins de 500u per arribar a 3s -> 3s/500us = 6000
+	;2 registres 65535
+        ;6000 d = 0001 0111 0111 0000 b
+	MOVLW HIGH(.6000)
+	MOVWF COMPTADOR_DURATION_H, 0
+	MOVLW LOW(.6000)
+	MOVWF COMPTADOR_DURATION_L, 0
     
-    BTFSC FLAGS, 6, 0 ;Mirem el Flag de comptar 2 segons
-    CALL COMPTAR_3S
+	RETURN
+;**********************************
+;INICIALITZAR COMPTADOR DE 3 SEGONS
+;**********************************
+INIT_COMPT_3S
+	;Interrupcuins de 500u per arribar a 3s -> 3s/500us = 6000
+	;2 registres 65535
+        ;6000 d = 0001 0111 0111 0000 b
+	MOVLW HIGH(.6000)
+	MOVWF COMPTADOR_3S_H, 0
+	MOVLW LOW(.6000)
+	MOVWF COMPTADOR_3S_L, 0
+	
+	BCF FLAGS_INT, 0, 0
+	BSF FLAGS, 1, 0 ;FLAGS<1>=Comptar 3 Segons
     
-    RETURN
-
+	RETURN
+	
+;------------------------------------FUNCIONS COMPTADORS------------------------------------
 ;****************
-;SERVOMOTOR
+;FUNCIO QUE COMPTA 1000 CICLES MAQUINA
 ;****************
-SERVO
-    BCF FLAGS, 2, 0 ;Posem a 0 el bit 2 de la variable Flags, que indica que s'ha d'activar el servo
-    RETURN
-;****************
-;ESPERA PER L'ACK
-;****************
-ALTAVEU
-    BCF FLAGS, 3, 0 ;Posem a 0 el bit 3 de la variable Flags, que indica que s'ha d'activar l'altaveu
-    RETURN
-
-;****************
-;ESPERA PER L'ACK
-;****************
-ESPERA_ACK ;Espera 2ms
+COMPTA_1000_CICLES ;Espera 2ms
     ;Tosc = 1 / 40M = 25ns
-    ;Cicle m�quina = 4*Tosc = 4*25ns = 100ns
-    ;Cicles=2m/100ns=20000
-    MOVLW .255 ;1CICLE (De moment poso 255)
+    ;Cicle màquina = 4*Tosc = 4*25ns = 100ns
+    ;Cicles=2m/100ns=20000 (20 REPETICIONS DE 1000 CICLES)
+    MOVLW .124 ;1CICLE
     MOVWF COMPT_ESPERA_ACK, 0 ;1CICLE
-LOOP_ESPERA_ACK ;20000 - 4 = 19996
-    ;3x = 19996 -> x=6665,3
-    ;3x=19995 -> 6665 (+ 1 NOPs)
-    DECFSZ COMPT_ESPERA_ACK, 1, 0 ;3CICLES
-    GOTO LOOP_ESPERA_ACK ;2CICLES
+    LOOP_ESPERA_ACK
+	;1000 - 6 = 994
+	;3x + 5nops (DINS DEL BUCLE) = 8X = 994 
+	NOP 
+	NOP
+	NOP
+	NOP
+	NOP
 
-    ;Es molt gran, puc fer servir dos comptadors (No se com es faria) o comptar un maxim de 255 cicles (2^8)
-    ;255*100ns=25,5us
-    ;Esperes de 25us per arribar a 2ms -> 2ms/25us = 1000
-
+	DECFSZ COMPT_ESPERA_ACK, 1, 0 ;3CICLES
+	GOTO LOOP_ESPERA_ACK ;2CICLES
     RETURN
-
-;************
-;ACTIVAR ACK  
-;************
-ACTIVAR_ACK
-    BSF LATC,6,0      ; Activem ACK (RC6)
-    CALL ESPERA_ACK   ; Ens hem d'esperar perqu� la fase 1 detecti ACK ;2CICLES
-    BCF LATC,6,0      ; Desactivem ACK (RC6)
     
+;*****************
+;COMPTAR 3 SEGONS
+;*****************
+COMPTAR_3S   
+	
+    DECF COMPTADOR_3S_L,1,0
+    BTFSC STATUS,C,0
+    RETURN
+    
+    DECF COMPTADOR_3S_H,1,0
+    BTFSC STATUS,C,0
+    RETURN
+    
+    BSF LATA, 4, 0 ;Activo Led incorrecte
+    BCF FLAGS, 4, 0 ;Desactiva 500ms
+    BCF LATA, 3, 0;Apagar led correcte
+    
+    BSF FLAGS_INT, 0, 0 ;Poso a 1 el bit 0 de la variable Flags_Int, indicant que ja he comptat 3s
+    BCF FLAGS, 1, 0 ;Poso a 0 el flag de comptar 3 segons
     RETURN
 
 ;*****************
-;GUARDAR NOTA RAM 
+;COMPTAR 500MS
 ;*****************
-GUARDAR_NOTA_RAM
-    MOVFF NUM_NOTES, FSR0L    ;Movem el punter d'escriptura de la RAM per escriure una nota nova -> el banc sempre �s 1
-    ; M�scara per guardar Nota[3..0] : Duration[1..0]
-    MOVFF PORTC, LECTURA
-    MOVLW b'00111111'
-    ANDWF LECTURA,0,0           ; Multipliquem la m�scara pel portc i guardem el resultat a w
-    ; Guardem la nota
-    MOVWF POSTINC0,0         ; Escriure RAM (FSR1)
+COMPTAR_500MS
+    DECF COMPTADOR_500MS_L,1,0
+    BTFSC STATUS,C,0
+    RETURN
+    DECF COMPTADOR_500MS_H,1,0
+    BTFSC STATUS,C,0
+    RETURN
+    
+    ;Aqui es correcte
+    ;3 opcions -> 
+    ;1. 500ms, comencem duracio
+    ;2. 3s, no 500ms ;Comptador 3s (fet)
+    ;3. Nota incorrecte (durant 500ms), ultasons para comptatge
+    
+    BCF FLAGS, 1, 0 ;Poso a 0 el Flag de 3s
+    
+    BCF LATA, 3, 0 
+    BCF LATA, 4, 0
+    
+    BSF FLAGS, 5, 0 ;Activo TM0 Duracio
+    
+    MOVLW .1
+    SUBWF DURATION_LLEGIDA, 0, 0
+    BTFSC STATUS, Z, 0
+    CALL INIT_COMPT_1S_DURATION
+    
+    MOVLW .2
+    SUBWF DURATION_LLEGIDA, 0, 0
+    BTFSC STATUS, Z, 0
+    CALL INIT_COMPT_2S_DURATION
+
+    
+    MOVLW .3
+    SUBWF DURATION_LLEGIDA, 0, 0
+    BTFSC STATUS, Z, 0
+    CALL INIT_COMPT_3S_DURATION
+
+    
+    
+    
+    BSF FLAGS_INT, 3, 0 ;Poso a 1 el bit 1 de la variable Flags_Int, indicant que ja he comptat 500usS
+    BCF FLAGS, 4, 0; Posem a 0 el flag que indica que s'han de comptar els 500ms
+
+    RETURN 
+
+;*****************
+;COMPTAR DURATION
+;*****************
+COMPTAR_DURATION   
+	
+    DECF COMPTADOR_DURATION_L,1,0
+    BTFSC STATUS,C,0
+    RETURN
+    
+    DECF COMPTADOR_DURATION_H,1,0
+    BTFSC STATUS,C,0
+    RETURN
+    
+    BSF LATA, 3, 0 ;Activo led correcte
+    
+    BSF FLGAS_INT, 0, 0 ;Ho he de mirar -> per acabar
+    BCF FLAGS, 5, 0 ;Desactivo el propi comptador
+    BSF FLAGS_INT, 1, 0 ;Poso a 1 el bit 1 de la variable Flags_Int, indicant que ja he comptat DURATION
+    RETURN
+;------------------------------------FUNCIONS ESPERES------------------------------------
+
+;**********************************
+;COMPTAR 1CM
+;**********************************
+ESPERA_60US
+	;Compto 60us perque cada cm son uns 60us
+	;velocitat del so = 343m/s
+	;dist = vel * t = 343m/s*t
+	;L'ultrasons retorna la ditancia calculada d'anada i tornada, per tant dist hauria de ser 2dist
+	;dist (vel * t)/2 = (343m/s * t) / 2
+	;Si dist=1cm=0.01m -> t = (0.01 * 2)/343 = 58.3us ~ 60us
+	
+	;Tosc = 1 / 40M = 25ns
+	;Cicle màquina = 4*Tosc = 4*25ns = 100ns
+	;Cicles= 60us/100ns=600
+	MOLWF .198
+	MOVWF COMPT_ESPERA_60US, 0 
+	LOOP_ESPERA_60US ;600 - 6 = 594
+	    ;3X = 595 -> x = 198
+	    DECFSZ COMPT_ESPERA_60US, 1, 0
+	    GOTO LOOP_ESPERA_60US
+	RETURN
+;************************************
+;ESPERA PER LA GENERACIÓ DEL TRIGGER
+;************************************
+ESPERA_GENERAR_TRIGGER
+    ;Tosc = 1 / 40M = 25ns
+    ;Cicle màquina = 4*Tosc = 4*25ns = 100ns
+    ;Cicles= 10us/100ns=100
+    MOVLW .32 ;1CICLE
+    MOVWF COMPT_ESPERA_TRIGGER, 0 ;1CICLE
+    LOOP_ESPERA_TRIGGER ;100 - 4 = 96
+	;3x = 96 -> X = 32
+	DECFSZ COMPT_ESPERA_TRIGGER, 1, 0 ;3CICLES
+	GOTO LOOP_ESPERA_TRIGGER ;2CICLES
+    RETURN	
+
+;------------------------------------FUNCIONS PER NOTA OK------------------------------------
+NOTA_IGUALS
+    ;COMENÇAR A COMPTAR 500MS
     
     RETURN
-
-;***************
-;PROCES NEWNOTE
-;***************
-NEW_NOTE
-    BCF INTCON,INT0IF,0   ; Netejem el flag de la interrupci�
-    ;Guardar la nota a la RAM
-    CALL GUARDAR_NOTA_RAM
-    ;Incrementar num notes
-    INCF NUM_NOTES,1,0
-    ;Activar ACK
-    CALL ACTIVAR_ACK
-    
+;------------------------------------FUNCIONS PER NOTA KO------------------------------------
+NOTA_KO
+    ;Si estic comptant 500ms, paro el comptador de 500ms
+    ;Si estic comptant la duracio, paro el comptador de duracio, activo el led incorrecte i vaig a la proxima nota -Z Activar flag_int
     RETURN
-
-;*********************************
-;CONTROLAR INTERRUPCI� START GAME 
-;*********************************
-ACTIVAR_START_GAME
-    BCF INTCON3, INT1IF,0   ; Netejar flanc d'interrupci�
-    BSF FLAGS,0,0      ; Activem flag per comen�ar el joc (FLAG<0>=Start Game)
-    
-    RETURN
-
+;------------------------------------FUNCIONS ULTRASONS------------------------------------
 ;******************************
-;INTERRUPCIONS D'ALTA PRIORITAT
+;GENERAR TRIGGER PER ULTRASONS
 ;******************************
-HIGH_RSI
-    ;Comprovem flag TMR0
-    BTFSC INTCON, TMR0IF, 0
-    CALL ACTION_TMR0
-    ;Comprovem flag RB0 (NewNote)
-    BTFSC INTCON, INT0IF, 0
-    CALL NEW_NOTE ;Ho posem per interrupci� perque va per flanc
-    ;Comprovem flag RB1 (StartGame)
-    BTFSC INTCON3, INT1IF, 0
-    CALL ACTIVAR_START_GAME
+GENERAR_TRIGGER
+    BSF LATA, 2, 0 ;Activo el bit 2 del port A, on esta conectat el trigger
+    CALL ESPERA_GENERAR_TRIGGER ;M'ha d'esperar 10us
+    BCF LATA, 2, 0
+    RETURN 
+;------------------------------------FUNCIONS START GAME------------------------------------
+NOTA_0_TRIGGER
+    MOVLW b'0000'
+    MOVWF NOTA_TROBADA
+    GOTO FINAL_ECHO
+NOTA_1_TRIGGER
+    MOVLW b'0001'
+    MOVWF NOTA_TROBADA
+    GOTO FINAL_ECHO
+NOTA_2_TRIGGER
+    MOVLW b'0010'
+    MOVWF NOTA_TROBADA
+    GOTO FINAL_ECHO
+NOTA_3_TRIGGER
+    MOVLW b'0011'
+    MOVWF NOTA_TROBADA
+    GOTO FINAL_ECHO
+NOTA_4_TRIGGER
+    MOVLW b'0100'
+    MOVWF NOTA_TROBADA
+    GOTO FINAL_ECHO
+NOTA_5_TRIGGER
+    MOVLW b'0101'
+    MOVWF NOTA_TROBADA
+    GOTO FINAL_ECHO
+NOTA_6_TRIGGER
+    MOVLW b'0110'
+    MOVWF NOTA_TROBADA
+    GOTO FINAL_ECHO
+;******************************
+;TROBAR NOTA RETORNADA PER L'ECHO
+;******************************
+TROBAR_NOTA
+    MOVLW .10 ;NOTA MES PETITA QUE 10
+    SUBWF COMPT_CM, 0, 0
+    BTFSC STATUS, C, 0
+    GOTO NOTA_0_ULTRASONS
     
-    RETFIE FAST
+    MOVLW .20
+    SUBWF COMPT_CM, 0, 0
+    BTFSC STATUS, C, 0
+    GOTO NOTA_1_ULTRASONS
+    
+    MOVLW .30
+    SUBWF COMPT_CM, 0, 0
+    BTFSC STATUS, C, 0
+    GOTO NOTA_2_ULTRASONS
+    
+    MOVLW .40
+    SUBWF COMPT_CM, 0, 0
+    BTFSC STATUS, C, 0
+    GOTO NOTA_3_ULTRASONS
+    
+    MOVLW .50
+    SUBWF COMPT_CM, 0, 0
+    BTFSC STATUS, C, 0
+    GOTO NOTA_4_ULTRASONS
+    
+    MOVLW .60
+    SUBWF COMPT_CM, 0, 0
+    BTFSC STATUS, C, 0
+    GOTO NOTA_5_ULTRASONS
+    
+    MOVLW .70
+    SUBWF COMPT_CM, 0, 0
+    BTFSC STATUS, C, 0
+    GOTO NOTA_6_ULTRASONS
+    
+    FINAL_ECHO
+	;Mirar per activar l'altave
+	CALL ACTIVA_ALTAVEU
+	;Mirar si la nota es correcte
+	MOVF NOTA_LLEGIDA
+	SUBWF NOTA_TROBADA, 0, 0
+	BTFSC STATUS, Z, 0
+	CALL NOTA_IGUALS
+	
+	MOVF NOTA_LLEGIDA
+	SUBWF NOTA_TROBADA, 0, 0
+	BTFSS STATUS, Z, 0
+	CALL NOTA_KO
+	
+    RETURN
+;************************************
+;ESPERA EL TEMPS PER DETECTAR LA NOTA
+;************************************
+ESPERAR_TEMPS
+    ;1. Hagin passat 3s
+    ;2. duracio correcte (1, 2, 3 s)
+    ;3. durant la duracio s'hagi mogut la ma (duracio incorrecte)
+    LOOP_MOSTRAR_DURATION
+	;Fer ultrasons
+	;Interrupcio Echo (Flanc de pujada)
+	;enerar flanc i esperar resposta
+	CALL GENERAR_TRIGGER 
+	CLRF COMPT_CM
+	LOOP_ESPERAR_ULTRASONS
+	    ;1. RB2 amb echo
+	    BTFSC PORTB, 2, 0 ;Miro si RB2 (Echo) es actiu -> indica que hi ha eco
+	    GOTO REBRE_NOTA ;Si hi ha echo vaig a rebre la nota
+	    ;2. 3s && !RB2 -> Flag_int s'ha activat
+	    BTFSC FLAG_INT, 0, 0 ;Comprobo si FLAG_INT<0>=1
+	    GOTO FINAL; Si FLAG_INT<0>=1 vol dir que han passat 3 segons, per tant ja no seguim comptant
+	    GOTO LOOP_ESPERA_ULTRASONS
+	    REBRE_NOTA
+		;COMPTAR CM I DECODIFICAR NOTA
+		CALL ESPERA_60US ;Espero 60us
+		INCF COMPT_CM, 1, 0
+		BTFSC PORTB, 2, 0 ;Mirar que RB2 (Echo) encara estigui actiu
+		;INCREMENTAR COMPTADOR CADA CMD QUE PASSI FINS QUE ECHO SIGUI 0 (PORTB2 = 0)
+		;HAN PASSAT 60US I PORTB2=1, SUMO 1CM (BUCLE FINS QUE JA NO, PORTB2=0)
+		GOTO REBRE_NOTA
+		;PORTB2 = 0
+		;VEURE QUINA NOTA ES
+		CALL TROBAR_NOTA
+		;DESPRES ESTIO DE LEDS
+	BTFSS FLAGS_INT, 0, 0 ;Miro el flag que genera la meva interrupció
+	GOTO LOOP_MOSTRAR_DURATION
+    FINAL
+    BCF FLAGS_INT, 0, 0 ;Poso a 0 el flag per poder tornar a comptar
+    RETURN
 ;****************************
 ;MOSTRAR NOTA PEL 7-SEGMENTS
 ;****************************
 MOSTRAR_NOTA
-	; M�scara per agafar nom�s la nota
+	; Màscara per agafar només la nota
 	MOVLW b'00001111'
-	ANDWF NOTA_LLEGIDA, 1, 0          ; Apliquem la m�scara i guardem la nota
-	; Comprovar quina nota �s
+	ANDWF NOTA_LLEGIDA, 1, 0          ; Apliquem la màscara i guardem la nota
+	; Comprovar quina nota és
 	MOVLW b'00000000'          ; Posem un 0 al w
 	SUBWF NOTA_LLEGIDA, 0      ; Restem per comparar
 	BTFSC STATUS, Z, 0         ; Si STATUS = 0 -> SALTA; Si STATUS = 1 -> NOTA_LLEGIDA = 0
@@ -349,12 +582,12 @@ MOSTRAR_NOTA
 	RETURN
 	
 ;**************************
-;MOSTRAR DURACI� PELS LEDS
+;MOSTRAR DURACIÓ PELS LEDS
 ;**************************
 MOSTRAR_LEDS
-	; Apliquem m�scara per quedar-nos amb la duraci�
-	MOVLW b'00110000'		   ; M�scara
-	ANDWF DURATION_LLEGIDA, 1, 0       ; Apliquem m�scara i guardem a la mateixa variable
+	; Apliquem màscara per quedar-nos amb la duració
+	MOVLW b'00110000'		   ; Màscara
+	ANDWF DURATION_LLEGIDA, 1, 0       ; Apliquem màscara i guardem a la mateixa variable
 	
 	RRNCF DURATION_LLEGIDA, 1, 0
 	RRNCF DURATION_LLEGIDA, 1, 0
@@ -362,19 +595,19 @@ MOSTRAR_LEDS
 	RRNCF DURATION_LLEGIDA, 1, 0
 
 	; Comprovo els valors del led
-	MOVLW .1                      ; Comprovem si �s 1
+	MOVLW .1                      ; Comprovem si és 1
 	SUBWF DURATION_LLEGIDA, 0, 0             ; Restem la nota llegida i el w (comparar)
-	BTFSC STATUS, Z, 0             ; si �s igual -> STATUS = 1
+	BTFSC STATUS, Z, 0             ; si és igual -> STATUS = 1
 	CALL LED_1
 	
-	MOVLW .2                      ; Comprovem si �s 2
+	MOVLW .2                      ; Comprovem si és 2
 	SUBWF DURATION_LLEGIDA, 0, 0             ; Restem la nota llegida i el w (comparar)
-	BTFSC STATUS, Z, 0             ; si �s igual -> STATUS = 1
+	BTFSC STATUS, Z, 0             ; si és igual -> STATUS = 1
 	CALL LED_2
 	
-	MOVLW .3                      ; Comprovem si �s 3
+	MOVLW .3                      ; Comprovem si és 3
 	SUBWF DURATION_LLEGIDA, 0, 0             ; Restem la nota llegida i el w (comparar)
-	BTFSC STATUS, Z, 0             ; si �s igual -> STATUS = 1
+	BTFSC STATUS, Z, 0             ; si és igual -> STATUS = 1
 	CALL LED_3
 	
 	RETURN
@@ -382,65 +615,64 @@ MOSTRAR_LEDS
 ;******************
 ;NOTES (7-SEGMENTS)
 ;******************
-; El 7-segments funciona per l�gica negativa
+; El 7-segments funciona per lògica negativa
 NOTA_0
-	MOVLW b'10000010'              ; Combinaci� per mostrar un 0 pel 7-seg
+	MOVLW b'10000010'              ; Combinació per mostrar un 0 pel 7-seg
 	MOVWF LATD, 0                  ; Carreguem el valor al port de sortida
-	RETURN                          ; Tornem a l'execuci� de StartGame per mirar els LEDS
+	RETURN                          ; Tornem a l'execució de StartGame per mirar els LEDS
 	
 NOTA_1
-	MOVLW b'11001111'              ; Combinaci� per mostrar un 1 pel 7-seg
+	MOVLW b'11001111'              ; Combinació per mostrar un 1 pel 7-seg
 	MOVWF LATD, 0                  ; Carreguem el valor al port de sortida
-	RETURN                          ; Tornem a l'execuci� de StartGame per mirar els LEDS
+	RETURN                          ; Tornem a l'execució de StartGame per mirar els LEDS
 	
 NOTA_2
-	MOVLW b'10010001'              ; Combinaci� per mostrar un 2 pel 7-seg
+	MOVLW b'10010001'              ; Combinació per mostrar un 2 pel 7-seg
 	MOVWF LATD, 0                  ; Carreguem el valor al port de sortida
-	RETURN                          ; Tornem a l'execuci� de StartGame per mirar els LEDS
+	RETURN                          ; Tornem a l'execució de StartGame per mirar els LEDS
 	
 NOTA_3
-	MOVLW b'10000101'              ; Combinaci� per mostrar un 3 pel 7-seg
+	MOVLW b'10000101'              ; Combinació per mostrar un 3 pel 7-seg
 	MOVWF LATD, 0                  ; Carreguem el valor al port de sortida
-	RETURN                          ; Tornem a l'execuci� de StartGame per mirar els LEDS
+	RETURN                          ; Tornem a l'execució de StartGame per mirar els LEDS
 	
 NOTA_4
-	MOVLW b'11001100'              ; Combinaci� per mostrar un 4 pel 7-seg
+	MOVLW b'11001100'              ; Combinació per mostrar un 4 pel 7-seg
 	MOVWF LATD, 0                  ; Carreguem el valor al port de sortida
-	RETURN                          ; Tornem a l'execuci� de StartGame per mirar els LEDS
+	RETURN                          ; Tornem a l'execució de StartGame per mirar els LEDS
 	
 NOTA_5
-	MOVLW b'10100100'              ; Combinaci� per mostrar un 5 pel 7-seg
+	MOVLW b'10100100'              ; Combinació per mostrar un 5 pel 7-seg
 	MOVWF LATD, 0                  ; Carreguem el valor al port de sortida
-	RETURN                          ; Tornem a l'execuci� de StartGame per mirar els LEDS
+	RETURN                          ; Tornem a l'execució de StartGame per mirar els LEDS
 	
 NOTA_6
-	MOVLW b'10100000'              ; Combinaci� per mostrar un 6 pel 7-seg
+	MOVLW b'10100000'              ; Combinació per mostrar un 6 pel 7-seg
 	MOVWF LATD, 0                  ; Carreguem el valor al port de sortida
-	RETURN                          ; Tornem a l'execuci� de StartGame per mirar els LEDS
+	RETURN                          ; Tornem a l'execució de StartGame per mirar els LEDS
 	
 NOTA_7
-	MOVLW b'10001111'              ; Combinaci� per mostrar un 7 pel 7-seg
+	MOVLW b'10001111'              ; Combinació per mostrar un 7 pel 7-seg
 	MOVWF LATD, 0                  ; Carreguem el valor al port de sortida
-	RETURN                          ; Tornem a l'execuci� de StartGame per mirar els LEDS
+	RETURN                          ; Tornem a l'execució de StartGame per mirar els LEDS
 	
 ;**************
-;DURACI� (LEDS)
+;DURACIÓ (LEDS)
 ;**************
 LED_1
     BSF LATA, 0, 0         ; Activem length_0
     BCF LATA, 1, 0         ; Desactivem lenght_1
-    RETURN                  ; Tornem a l'execuci� de StartGame
+    RETURN                  ; Tornem a l'execució de StartGame
 	
 LED_2
     BCF LATA, 0, 0         ; Activem length_0
     BSF LATA, 1, 0         ; Desactivem lenght_1
-    RETURN                  ; Tornem a l'execuci� de StartGame
+    RETURN                  ; Tornem a l'execució de StartGame
     
 LED_3
     BSF LATA, 0, 0         ; Activem length_0
     BSF LATA, 1, 0         ; Desactivem lenght_1
-    RETURN                  ; Tornem a l'execuci� de StartGame
-
+    RETURN                  ; Tornem a l'execució de StartGame
 ;*********************************
 ;COMPROVAR SI HI HA NOTES A LA RAM  
 ;*********************************
@@ -449,208 +681,154 @@ COMPROVAR_NOTES
 	MOVLW .0
 	SUBWF NUM_NOTES,0,0
 	BTFSC STATUS, Z, 0    ; Si STATUS = 0 -> Saltara; Si Num_Notes = 0 -> STATUS = 1
-	GOTO RAM_BUIDA_END    ; Si la RAM �s buida no continuem amb el programa
+	GOTO RAM_BUIDA_END    ; Si la RAM és buida no continuem amb el programa
 	
 	RETURN
-
-;**********************************
-;INICIALITZAR COMPTADOR DE 500MS
-;**********************************
-INIT_COMPT_500MS
-	;Interrupcions de 500u per aribar a 500ms -> 500ms/500us = 1000
-	;2 registres 65535
-	;1000 d = 0011 1110 1000 b
-	MOVLW HIGH(.1000)
-	MOVWF COMPTADOR_500MS_H, 0
-	MOVLW LOW(.1000)
-	MOVWF COMPTADOR_500MS_L, 0
-	
-	BCF FLAGS_INT, 2, 0 ;Poso a 0 la variable que indica quan he comptat 2 segons
-	BSF FLAGS, 1, 0 ;FLAGS<1>=Comptar 3 Segons
-	RETURN
-;*****************
-;COMPTAR 500MS
-;*****************
-COMPTAR_500MS
-    BCF FLAGS, 4, 0; Posem a 0 el flag que indica que s'han de comptar els 500ms
-    DECF COMPTADOR_500MS_L,1,0
-    BTFSC STATUS,C,0
-    RETURN
-    DECF COMPTADOR_500MS_H,1,0
-    BTFSC STATUS,C,0
-    RETURN
-    BSF FLAGS_INT, 3, 0 ;Poso a 1 el bit 1 de la variable Flags_Int, indicant que ja he comptat 500usS
-
-    RETURN
-
-;**********************************
-;INICIALITZAR COMPTADOR DE 1 SEGON
-;**********************************
-INIT_COMPT_1S
-	;Interrupcuins de 500u per arribar a 3s -> 2s/500us = 2000
-	;2 registres 65535
-	MOVLW HIGH(.2000)
-	MOVWF COMPTADOR_1S_H, 0
-	MOVLW LOW(.2000)
-	MOVWF COMPTADOR_1S_L, 0
-	
-	BCF FLAGS_INT, 1, 0 ;Poso a 0 la variable que indica quan he comptat 2 segons
-	BSF FLAGS, 5, 0 ;FLAGS<5>=Comptar 1 Segon
-    
-	RETURN
-	
-;*****************
-;COMPTAR 1 SEGON
-;*****************
-COMPTAR_1S   
-	
-    DECF COMPTADOR_1S_L,1,0
-    BTFSC STATUS,C,0
-    RETURN
-    
-    DECF COMPTADOR_1S_H,1,0
-    BTFSC STATUS,C,0
-    RETURN
-    
-    BSF FLAGS_INT, 1, 0 ;Poso a 1 el bit 1 de la variable Flags_Int, indicant que ja he comptat 1s
-    BCF FLAGS, 5, 0 ;Poso a 0 el flag de comptar 3 segons
-    RETURN
-    
-;**********************************
-;INICIALITZAR COMPTADOR DE 2 SEGONS
-;**********************************
-INIT_COMPT_2S
-	;Interrupcuins de 500u per arribar a 3s -> 2s/500us = 4000
-	;2 registres 65535
-	MOVLW HIGH(.4000)
-	MOVWF COMPTADOR_2S_H, 0
-	MOVLW LOW(.4000)
-	MOVWF COMPTADOR_2S_L, 0
-	
-	BCF FLAGS_INT, 2, 0 ;Poso a 0 la variable que indica quan he comptat 2 segons
-	BSF FLAGS, 6, 0 ;FLAGS<6>=Comptar 2 Segons
-    
-	RETURN
-	
-;*****************
-;COMPTAR 2 SEGONS
-;*****************
-COMPTAR_2S   
-	
-    DECF COMPTADOR_2S_L,1,0
-    BTFSC STATUS,C,0
-    RETURN
-    
-    DECF COMPTADOR_2S_H,1,0
-    BTFSC STATUS,C,0
-    RETURN
-    
-    BSF FLAGS_INT, 2, 0 ;Poso a 1 el bit 0 de la variable Flags_Int, indicant que ja he comptat 3s
-    BCF FLAGS, 6, 0 ;Poso a 0 el flag de comptar 3 segons
-    RETURN
-    
-;**********************************
-;INICIALITZAR COMPTADOR DE 3 SEGONS
-;**********************************
-INIT_COMPT_3S
-	;Interrupcuins de 500u per arribar a 3s -> 3s/500us = 6000
-	;2 registres 65535
-        ;6000 d = 0001 0111 0111 0000 b
-	MOVLW HIGH(.6000)
-	MOVWF COMPTADOR_3S_H, 0
-	MOVLW LOW(.6000)
-	MOVWF COMPTADOR_3S_L, 0
-	
-	BCF FLAGS_INT, 0, 0
-	BSF FLAGS, 1, 0 ;FLAGS<1>=Comptar 3 Segons
-    
-	RETURN
-	
-;*****************
-;COMPTAR 3 SEGONS
-;*****************
-COMPTAR_3S   
-	
-    DECF COMPTADOR_3S_L,1,0
-    BTFSC STATUS,C,0
-    RETURN
-    
-    DECF COMPTADOR_3S_H,1,0
-    BTFSC STATUS,C,0
-    RETURN
-    
-    BSF FLAGS_INT, 0, 0 ;Poso a 1 el bit 0 de la variable Flags_Int, indicant que ja he comptat 3s
-    BCF FLAGS, 1, 0 ;Poso a 0 el flag de comptar 3 segons
-    RETURN
-    
-;************************************
-;ESPERA PER LA GENERACI� DEL TRIGGER
-;************************************
-ESPERA_GENERAR_TRIGGER
-    ;Tosc = 1 / 40M = 25ns
-    ;Cicle m�quina = 4*Tosc = 4*25ns = 100ns
-    ;Cicles= 10us/100ns=100
-    MOVLW .32 ;1CICLE
-    MOVWF COMPT_ESPERA_TRIGGER, 0 ;1CICLE
-LOOP_ESPERA_TRIGGER ;100 - 4 = 96
-    ;3x = 96 -> X = 32
-    DECFSZ COMPT_ESPERA_TRIGGER, 1, 0 ;3CICLES
-    GOTO LOOP_ESPERA_TRIGGER ;2CICLES
-    RETURN
-    
-;******************************
-;GENERAR TRIGGER PER ULTRASONS
-;******************************
-GENERAR_TRIGGER
-    BSF LATA, 2, 0 ;Activo el bit 2 del port A, on esta conectat el trigger
-    CALL ESPERA_GENERAR_TRIGGER ;M'ha d'esperar 10us
-    BCF LATA, 2, 0
-    RETURN 
-
 ;***********
 ;START GAME  
 ;***********
 START_GAME
-    ; Posicionem el punter de lectura de la RAM a la primera posici�
-    CLRF FSR1L, 0
     ; Comprovar si hi ha notes
     CALL COMPROVAR_NOTES
-LOOP_START_GAME
-    ; Llegim la posici�
-    MOVF POSTINC1       ; Movem el registre al work
-    MOVWF NOTA_LLEGIDA, 0
-    MOVWF DURATION_LLEGIDA, 0
-    ; Mostrem la nota al 7-segments
-    CALL MOSTRAR_NOTA
-    ; Mostrem la duraci� als leds
-    CALL MOSTRAR_LEDS
-    ;Comptar 3s amb el tmr0 -> Indco amb un flag
-    ;Posar un comptador a 0
-    ;Activar una flag
-    CALL INIT_COMPT_3S
-    CALL ESPERAR_3S
-    
-    ; Comprovar Ultrasons
-    ; Comprovar si hi ha notes per llegir
-    MOVF NUM_NOTES, 0   ; Movem num_notes al w
-    SUBWF FSR1L,0       ; Restem el n�mero de notes al punter de lectura de la RAM
-    BTFSS STATUS, Z, 0   ; Comprovem -> STATUS = 1 : S�n iguals -> Si son iguals vol dir que s'ha acabat
-    GOTO LOOP_START_GAME
+    LOOP_START_GAME
+	; Llegim la posició
+	MOVF POSTINC0       ; Movem el registre al work
+	MOVWF NOTA_LLEGIDA, 0
+	MOVWF DURATION_LLEGIDA, 0
+	; Mostrem la nota al 7-segments
+	CALL MOSTRAR_NOTA
+	; Mostrem la duració als leds
+	CALL MOSTRAR_LEDS
+	;Comptar 3s amb el tmr0 -> Indco amb un flag
+	;Activar una flag
+	CALL INIT_COMPT_3S
+	CALL ESPERAR_TEMPS
 
-RAM_BUIDA_END
-    GOTO RAM_BUIDA_END
+	; Comprovar Ultrasons
+	; Comprovar si hi ha notes per llegir
+
+	MOVF NUM_NOTES, 0   ; Movem num_notes al w
+	SUBWF FSR0L,0       ; Restem el número de notes al punter de lectura de la RAM
+	BTFSS STATUS, Z, 0   ; Comprovem -> STATUS = 1 : Són iguals -> Si son iguals vol dir que s'ha acabat
+	GOTO LOOP_START_GAME
+
+    RAM_BUIDA_END
+	GOTO RAM_BUIDA_END
 	
 	RETURN
-	
-;********************
-;COMPTAR 3S
-;********************
-ESPERAR_3S
-    LOOP_MOSTRAR_3S
-	BTFSS FLAGS_INT, 0, 0 ;Miro el flag que genera la meva interrupci�
-	GOTO LOOP_MOSTRAR_3S
-    BCF FLAGS_INT, 0, 0 ;Poso a 0 el flag per poder tornar a comptar
-	RETURN
+;------------------------------------FUNCIONS NEW NOTE------------------------------------
+;****************
+;ESPERA PER L'ACK
+;****************    
+ESPERA_ACK
+    MOVLW .20
+    MOVWF COMPT_ACK, 0
+    LOOP_ACK
+	CALL COMPTA_1000_CICLES
+	DECFSZ COMPT_ACK, 1, 0
+	BOTO LOOP_ACK
+    RETURN
+    
+
+;************
+;ACTIVAR ACK  
+;************
+ACTIVAR_ACK
+    BSF LATC,6,0      ; Activem ACK (RC6)
+    
+    CALL ESPERA_ACK   ; Ens hem d'esperar perquè la fase 1 detecti ACK ;2CICLES
+    
+    BCF LATC,6,0      ; Desactivem ACK (RC6)
+    
+    RETURN
+
+;*****************
+;GUARDAR NOTA RAM 
+;*****************
+GUARDAR_NOTA_RAM
+    MOVFF NUM_NOTES, FSR0L    ;Movem el punter d'escriptura de la RAM per escriure una nota nova -> el banc sempre és 1
+    ; Màscara per guardar Nota[3..0] : Duration[1..0]
+    MOVFF PORTC, LECTURA
+    MOVLW b'00111111'
+    ANDWF LECTURA,0,0           ; Multipliquem la màscara pel portc i guardem el resultat a w
+    ; Guardem la nota
+    MOVWF POSTINC0,0         ; Escriure RAM (FSR1)
+    
+    RETURN
+;------------------------------------FUNCIONS INTERRUPCIONS------------------------------------
+;****************
+;SERVOMOTOR
+;****************
+SERVO
+    BCF FLAGS, 2, 0 ;Posem a 0 el bit 2 de la variable Flags, que indica que s'ha d'activar el servo
+    RETURN
+;****************
+;ESPERA PER L'ACK
+;****************
+ALTAVEU
+    BCF FLAGS, 3, 0 ;Posem a 0 el bit 3 de la variable Flags, que indica que s'ha d'activar l'altaveu
+    RETURN
+;***************
+;PROCES NEWNOTE
+;***************
+NEW_NOTE
+    BCF INTCON,INT0IF,0   ; Netejem el flag de la interrupció
+    ;Guardar la nota a la RAM
+    CALL GUARDAR_NOTA_RAM
+    ;Incrementar num notes
+    INCF NUM_NOTES,1,0
+    ;Activar ACK
+    CALL ACTIVAR_ACK
+    
+    RETURN
+;*********************************
+;CONTROLAR INTERRUPCIÓ START GAME 
+;*********************************
+ACTIVAR_START_GAME
+    BCF INTCON3, INT1IF,0   ; Netejar flanc d'interrupció
+    BSF FLAGS,0,0      ; Activem flag per començar el joc (FLAG<0>=Start Game)
+    
+    RETURN
+;****************
+;ACCIO DEL TMR0
+;****************
+ACTION_TMR0
+
+    BCF INTCON, TMR0IF, 0 ;Netejem el flag
+    CALL CARREGA_TMR0 ;Carreguem el valor del tmr0 de nou
+
+    BTFSC FLAGS, 1, 0 ;Mirem el Flag de comptar 3 segons
+    CALL COMPTAR_3S
+
+    BTFSC FLAGS, 2, 0 ;Mirem el Flag d'activar el servo
+    CALL SERVO
+    
+    BTFSC FLAGS, 3, 0 ;Mirem el Flag d'activar l'altaveu
+    CALL ALTAVEU
+    
+    BTFSC FLAGS, 4, 0 ;Mirem el Flag de comptar 500ms
+    CALL COMPTAR_500MS
+
+    BTFSC FLAGS, 5, 0 ;Mirem el Flag de comptar duracio
+    CALL COMPTAR_DURATION
+    RETURN
+;------------------------------------FUNCIONS PRINCIPALS------------------------------------
+;******************************
+;INTERRUPCIONS D'ALTA PRIORITAT
+;******************************
+HIGH_RSI
+    ;Comprovem flag TMR0
+    BTFSC INTCON, TMR0IF, 0
+    CALL ACTION_TMR0
+    ;Comprovem flag RB0 (NewNote)
+    BTFSC INTCON, INT0IF, 0
+    CALL NEW_NOTE ;Ho posem per interrupció perque va per flanc
+    ;Comprovem flag RB1 (StartGame)
+    BTFSC INTCON3, INT1IF, 0
+    CALL ACTIVAR_START_GAME
+    
+    RETFIE FAST
+    
 ;********************
 ;MAIN 
 ;********************
@@ -661,12 +839,13 @@ MAIN
     CALL CONFIG_INTERRUPTS    ; CONFIGURAR INTERRUCIONS
     CALL PUNTER_RAM     ; INICIALITZEM ELS PUNTERS DE LA RAM
     CALL INIT_TMR0      ; INICIALITZEM EL TMR0 PER INTERRUMPIR
-    CALL CARREGA_TMR0   ; CARREGA EL TMR0 PER GENERAR LA INTERRUPCI�
+    CALL CARREGA_TMR0   ; CARREGA EL TMR0 PER GENERAR LA INTERRUPCIÓ
 LOOP
 		    ; FEM NEWNOTE PER INTERRUPCIONS -> INT0IE
-		    ;FEM STARTGAME PER INTERRUPCI� -> INT1IE
+		    ;FEM STARTGAME PER INTERRUPCIÓ -> INT1IE
+    CLRF FSR1L, 0 ; Posicionem el punter de lectura de la RAM a la primera posició
     BTFSC FLAGS,0,0     ; MIREM EL BIT 0 DEL REGISTRE QUE INDICA QUE START GAME ES ACTIU
     CALL START_GAME
 
 
-    ENDsss
+    END
