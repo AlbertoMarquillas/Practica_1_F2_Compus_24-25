@@ -34,6 +34,20 @@ COMPT_ESPERA_60US EQU 0X0011
 NOTA_TROBADA EQU 0X0012
 COMPTADOR_2S_L EQU 0x0013
 COMPTADOR_2S_H EQU 0x0014
+COMPTADOR_TRIGGER EQU 0x0015
+TICKS_ALTAVEU EQU 0x0016
+PWM_ALTAVEU EQU 0x0017
+DC_ALTAVEU EQU 0x0018
+NOTES_CORRECTES_AUX EQU 0x0019
+COMPT_ESPERA_11US EQU 0x0020
+GARUS_AUX EQU 0X0021
+GRAUS EQU 0X0022
+INTERRUPCIONS_FLASH EQU 0X0023
+NOTES_CORRECTE EQU 0X0024
+NOTES_CORRECTES EQU 0X0025
+QUANTITAT_GRAUS EQU 0X0026
+NUM_NOTES_AUXILIAR EQU 0X0027
+TAULA EQU 0X0040
  
 ;******************************
 ;VECTORS DE RESET I INTERRUPCIÓ 
@@ -44,9 +58,14 @@ ORG 0X0008
 GOTO HIGH_RSI
 ORG 0X0018
 RETFIE FAST
- 
+
+ORG TAULA
+DB .0, .180, .90, .60, .45
+DB .36, .30, .26, .23, .20
+DB .18, .16, .15, .14, .13
+DB .12, .11
 ;------------------------------------MAIN------------------------------------
-;------------------------------------FUNCIONS CONFIGURACIO------------------------------------
+;------------------------------------FUNCIONS CONFIGURACIÓ------------------------------------
 
 ;**********************
 ;CONFIGURACIÓ DE PORTS  
@@ -103,6 +122,7 @@ INIT_VARS
     BCF FLAGS, 3, 0 ;Posem a 0 el bit 3 de la variable Flags -> Indica quan s'ha de fer algo amb l'altaveu
     BCF FLAGS, 4, 0 ;Posem a 0 el bit 4 de la variable Flags -> Indica quan s'han de comptar 500ms
     BCF FLAGS, 5, 0 ;Posem a 0 el bit 4 de la variable Flags -> Indica quan s'han de comptar DURACIO
+    BCF FLAGS, 7, 0 ;Posem a 0 el bit 4 de la variable Flags -> Indica quan s'ha de comptar temps de TRIGGER
 
     CLRF NUM_NOTES
     CLRF LECTURA 
@@ -119,6 +139,11 @@ INIT_VARS
     CLRF COMPTADOR_2S_H 
     CLRF COMPT_ACK
     CLRF COMPT_CM
+    CLRF COMPT_ESPERA_60US
+    CLRF COMPT_ESPERA_TRIGGER
+    CLRF DC_ALTAVEU
+    CLRF NOTA_TROBADA
+    CLRF COMPTADOR_TRIGGER
     
     BCF FLAGS_INT, 0, 0 ;Posem a 0 el bit 0 de la variable Flags_Int -> Indica quan s'han comptat els 3 segons    
     BCF FLAGS_INT, 1, 0 ;Posem a 0 el bit 1 de la variable Flags_Int -> Indica quan s'ha comptat duracio
@@ -210,7 +235,7 @@ INIT_COMPT_1S_DURATION
 	MOVLW HIGH(.2000)
 	MOVWF COMPTADOR_DURATION_H, 0
 	MOVLW LOW(.2000)
-	MOVWF COMPTADOR_DURATION_H, 0
+	MOVWF COMPTADOR_DURATION_L, 0
     
 	RETURN
 ;**************************************************
@@ -222,7 +247,7 @@ INIT_COMPT_2S_DURATION
 	MOVLW HIGH(.4000)
 	MOVWF COMPTADOR_DURATION_H, 0
 	MOVLW LOW(.4000)
-	MOVWF COMPTADOR_DURATION_H, 0
+	MOVWF COMPTADOR_DURATION_L, 0
     
 	RETURN
 ;**************************************************
@@ -372,6 +397,7 @@ COMPTAR_DURATION
     ;Ja ha passat duration
     
     BSF LATA, 3, 0 ;Activo led correcte
+    INCF NOTES_CORRECTES, 1, 0
     
     BSF FLAGS_INT, 0, 0 ;Ho he de mirar -> per acabar
     BCF FLAGS, 5, 0 ;Desactivo el propi comptador
@@ -437,14 +463,27 @@ ESPERA_INCORRECT
 ;FUNCIO AMB UN BUCLE INFINIT AMB EL FINAL
 ;*****************************************
 MOSTRA_FINAL
-    MOVLW b'00000010'
+    MOVLW b'11111101'
     MOVWF PORTD, 0
+    BCF FLAGS, 3, 0 ;Desactivar Altaveu
+    BCF LATC, 7, 0;Apagar altaveu
     ;Servo? GameScore por servo
     LOOP_MOSTRA_FINAL
 	GOTO LOOP_MOSTRA_FINAL
     RETURN
 ;------------------------------------FUNCIONS PER NOTA OK------------------------------------
 NOTA_IGUALS
+    ;NO COMPTANT 500MS && NO ESTIC COMPTATNT DURACIO -> COMENÇO A COMPTAR 500MS
+    
+    BTFSS FLAGS, 4, 0 ;Flag de 500ms
+    CALL NO_500MS
+    RETURN
+    
+    NO_500MS
+	BTFSS FLAGS, 5, 0 ;Flag de comptar duració
+	BSF FLAGS, 4, 0 ;Activo 500ms
+	
+    
     RETURN
 ;------------------------------------FUNCIONS PER NOTA KO------------------------------------
 ;********************************************
@@ -455,12 +494,12 @@ NOTA_KO
     ;Si estic comptant la duracio, paro el comptador de duracio, activo el led incorrecte 
     ;i vaig a la proxima nota -> Activar flag_int
     
-    BTFSC FLAGS, 4, 0
+    BTFSC FLAGS, 4, 0;Flag comptar 500ms
     ;Si esta actiu, parar el comptador de 500ms
-    BCF FLAGS, 4, 0
+    BCF FLAGS, 4, 0; Flag comptar 500ms
     
-    BTFSC FLAGS, 5, 0
-    GOTO INTERROMP_DURACIO
+    BTFSC FLAGS, 5, 0;Flag per duracio (temps que he d'estar donant la nota correcte)
+    CALL INTERROMP_DURACIO
     RETURN
     
     INTERROMP_DURACIO
@@ -482,32 +521,52 @@ GENERAR_TRIGGER
     RETURN 
 ;------------------------------------FUNCIONS START GAME------------------------------------
 NOTA_0_ULTRASONS
-    MOVLW b'0000'
+    MOVLW .0
     MOVWF NOTA_TROBADA
+    MOVLW .1
+    MOVWF DC_ALTAVEU
     GOTO FINAL_ECHO
 NOTA_1_ULTRASONS
-    MOVLW b'0001'
+    MOVLW .1
     MOVWF NOTA_TROBADA
+    MOVLW .2
+    MOVWF DC_ALTAVEU
     GOTO FINAL_ECHO
 NOTA_2_ULTRASONS
-    MOVLW b'0010'
+    MOVLW .2
     MOVWF NOTA_TROBADA
+    MOVLW .3
+    MOVWF DC_ALTAVEU
     GOTO FINAL_ECHO
 NOTA_3_ULTRASONS
-    MOVLW b'0011'
+    MOVLW .3
     MOVWF NOTA_TROBADA
+    MOVLW .4
+    MOVWF DC_ALTAVEU
     GOTO FINAL_ECHO
 NOTA_4_ULTRASONS
-    MOVLW b'0100'
+    MOVLW .4
     MOVWF NOTA_TROBADA
+    MOVLW .5
+    MOVWF DC_ALTAVEU
     GOTO FINAL_ECHO
 NOTA_5_ULTRASONS
-    MOVLW b'0101'
+    MOVLW .5
     MOVWF NOTA_TROBADA
+    MOVLW .6
+    MOVWF DC_ALTAVEU
     GOTO FINAL_ECHO
 NOTA_6_ULTRASONS
-    MOVLW b'0110'
+    MOVLW .6
     MOVWF NOTA_TROBADA
+    MOVLW .7
+    MOVWF DC_ALTAVEU
+    GOTO FINAL_ECHO
+NOTA_ERRONIA
+    MOVLW .255
+    MOVWF NOTA_TROBADA
+    BCF FLAGS, 3, 0;Apaga interrupcio altaveu
+    BCF LATC, 7, 0;Apaga altaveu
     GOTO FINAL_ECHO
 
 ;**********************************************
@@ -520,56 +579,85 @@ ACTIVA_ALTAVEU
 ;TROBAR NOTA RETORNADA PER L'ECHO
 ;******************************
 TROBAR_NOTA
+    CALL ACTIVA_ALTAVEU
     MOVLW .10 ;NOTA MES PETITA QUE 10
+    MOVFF COMPT_CM, ADRESH
     SUBWF COMPT_CM, 0, 0
-    BTFSC STATUS, C, 0
-    GOTO NOTA_0_ULTRASONS
+    BTFSS STATUS, C, 0
+    GOTO NOTA_0_ULTRASONS    
+    ;compt - 10 >= 0 -> Status (C) = 1
+    ;Compt > 10 -> Salto
+    ;Compt < 10 -> No salto
     
     MOVLW .20
     SUBWF COMPT_CM, 0, 0
-    BTFSC STATUS, C, 0
+    BTFSS STATUS, C, 0
     GOTO NOTA_1_ULTRASONS
     
     MOVLW .30
     SUBWF COMPT_CM, 0, 0
-    BTFSC STATUS, C, 0
+    BTFSS STATUS, C, 0
     GOTO NOTA_2_ULTRASONS
     
     MOVLW .40
     SUBWF COMPT_CM, 0, 0
-    BTFSC STATUS, C, 0
+    BTFSS STATUS, C, 0
     GOTO NOTA_3_ULTRASONS
     
     MOVLW .50
     SUBWF COMPT_CM, 0, 0
-    BTFSC STATUS, C, 0
+    BTFSS STATUS, C, 0
     GOTO NOTA_4_ULTRASONS
     
     MOVLW .60
     SUBWF COMPT_CM, 0, 0
-    BTFSC STATUS, C, 0
+    BTFSS STATUS, C, 0
     GOTO NOTA_5_ULTRASONS
     
     MOVLW .70
     SUBWF COMPT_CM, 0, 0
-    BTFSC STATUS, C, 0
+    BTFSS STATUS, C, 0
     GOTO NOTA_6_ULTRASONS
     
+    MOVLW .70
+    SUBWF COMPT_CM, 0, 0
+    BTFSC STATUS, C, 0
+    GOTO NOTA_ERRONIA
+    
     FINAL_ECHO
-	;Mirar per activar l'altave
-	CALL ACTIVA_ALTAVEU ;Activo Flag
 	;Mirar si la nota es correcte
-	MOVF NOTA_LLEGIDA
+	MOVF NOTA_LLEGIDA, 0, 0
 	SUBWF NOTA_TROBADA, 0, 0
 	BTFSC STATUS, Z, 0
 	CALL NOTA_IGUALS
 	
-	MOVF NOTA_LLEGIDA
+	MOVF NOTA_LLEGIDA, 0, 0
 	SUBWF NOTA_TROBADA, 0, 0
 	BTFSS STATUS, Z, 0
 	CALL NOTA_KO
 	
     RETURN
+    
+INIT_COMPTADOR_TRIGGER
+    ;Interrupcuins de 500u per arribar a 100ms -> 100ms/500us = 200
+    MOVLW .200
+    MOVWF COMPTADOR_TRIGGER, 0
+    BSF FLAGS, 7, 0 ;Flag comptador trigger
+    LOOP_ESPERA_INIT_TRIGGER
+	DECFSZ COMPTADOR_TRIGGER, 1, 0
+	GOTO LOOP_ESPERA_INIT_TRIGGER
+    RETURN
+    
+ESPERA_TRIGGER
+    DECF COMPTADOR_TRIGGER,1,0
+    BTFSC STATUS,C,0
+    RETURN
+    
+    ;Aqui ja hauràn passat els 100ms
+    BCF FLAGS, 7, 0
+    RETURN
+    
+    
 ;************************************
 ;ESPERA EL TEMPS PER DETECTAR LA NOTA
 ;************************************
@@ -582,10 +670,16 @@ ESPERAR_TEMPS
 	;Interrupcio Echo (Flanc de pujada)
 	;enerar flanc i esperar resposta
 	CLRF COMPT_CM
-	CALL GENERAR_TRIGGER 
+	
+	CALL INIT_COMPTADOR_TRIGGER;Uns 100ms
+	
+	;Desactivo interrupcions
+	BCF INTCON, 6, 0
+	BCF INTCON, 7, 0
+	CALL GENERAR_TRIGGER ;Pot donar problemes
 	LOOP_ESPERAR_ULTRASONS
 	    ;1. RB2 amb echo
-	    BTFSC PORTB, 2, 0 ;Miro si RB2 (Echo) es actiu -> indica que hi ha eco
+ 	    BTFSC PORTB, 2, 0 ;Miro si RB2 (Echo) es actiu -> indica que hi ha eco
 	    GOTO REBRE_NOTA ;Si hi ha echo vaig a rebre la nota
 	    ;2. 3s && !RB2 -> Flag_int s'ha activat
 	    BTFSC FLAGS_INT, 0, 0 ;Comprobo si FLAG_INT<0>=1
@@ -600,9 +694,12 @@ ESPERAR_TEMPS
 		;HAN PASSAT 60US I PORTB2=1, SUMO 1CM (BUCLE FINS QUE JA NO, PORTB2=0)
 		GOTO REBRE_NOTA
 		;PORTB2 = 0
+		;Activo interrupcions
+		BCF INTCON, 6, 0
+		BCF INTCON, 7, 0
 		;VEURE QUINA NOTA ES
 		CALL TROBAR_NOTA
-		;DESPRES ESTIO DE LEDS
+		;DESPRES GESTIO DE LEDS
 	BTFSS FLAGS_INT, 0, 0 ;Miro el flag que genera la meva interrupció
 	GOTO LOOP_MOSTRAR_DURATION ;Esto lo he de mirar bien
     FINAL
@@ -617,37 +714,37 @@ MOSTRAR_NOTA
 	ANDWF NOTA_LLEGIDA, 1, 0          ; Apliquem la màscara i guardem la nota
 	; Comprovar quina nota és
 	MOVLW b'00000000'          ; Posem un 0 al w
-	SUBWF NOTA_LLEGIDA, 0      ; Restem per comparar
+	SUBWF NOTA_LLEGIDA, 0, 0      ; Restem per comparar
 	BTFSC STATUS, Z, 0         ; Si STATUS = 0 -> SALTA; Si STATUS = 1 -> NOTA_LLEGIDA = 0
 	CALL NOTA_0
 
 	MOVLW b'00000001'          ; Posem un 1 al w
-	SUBWF NOTA_LLEGIDA, 0      ; Restem per comparar
+	SUBWF NOTA_LLEGIDA, 0, 0      ; Restem per comparar
 	BTFSC STATUS, Z, 0         ; Si STATUS = 0 -> SALTA; Si STATUS = 1 -> NOTA_LLEGIDA = 1
 	CALL NOTA_1
 
 	MOVLW b'00000010'          ; Posem un 2 al w
-	SUBWF NOTA_LLEGIDA, 0      ; Restem per comparar
+	SUBWF NOTA_LLEGIDA, 0, 0      ; Restem per comparar
 	BTFSC STATUS, Z, 0         ; Si STATUS = 0 -> SALTA; Si STATUS = 1 -> NOTA_LLEGIDA = 2
 	CALL NOTA_2
 
 	MOVLW b'00000011'          ; Posem un 3 al w
-	SUBWF NOTA_LLEGIDA, 0      ; Restem per comparar
+	SUBWF NOTA_LLEGIDA, 0, 0      ; Restem per comparar
 	BTFSC STATUS, Z, 0         ; Si STATUS = 0 -> SALTA; Si STATUS = 1 -> NOTA_LLEGIDA = 3
 	CALL NOTA_3
 
 	MOVLW b'00000100'          ; Posem un 4 al w
-	SUBWF NOTA_LLEGIDA, 0      ; Restem per comparar
+	SUBWF NOTA_LLEGIDA, 0, 0      ; Restem per comparar
 	BTFSC STATUS, Z, 0         ; Si STATUS = 0 -> SALTA; Si STATUS = 1 -> NOTA_LLEGIDA = 4
 	CALL NOTA_4
 
 	MOVLW b'00000101'          ; Posem un 5 al w
-	SUBWF NOTA_LLEGIDA, 0      ; Restem per comparar
+	SUBWF NOTA_LLEGIDA, 0, 0      ; Restem per comparar
 	BTFSC STATUS, Z, 0         ; Si STATUS = 0 -> SALTA; Si STATUS = 1 -> NOTA_LLEGIDA = 5
 	CALL NOTA_5
 
 	MOVLW b'00000110'          ; Posem un 6 al w
-	SUBWF NOTA_LLEGIDA, 0      ; Restem per comparar
+	SUBWF NOTA_LLEGIDA, 0, 0      ; Restem per comparar
 	BTFSC STATUS, Z, 0         ; Si STATUS = 0 -> SALTA; Si STATUS = 1 -> NOTA_LLEGIDA = 6
 	CALL NOTA_6
 	
@@ -756,16 +853,30 @@ COMPROVAR_NOTES
 	GOTO RAM_BUIDA_END    ; Si la RAM és buida no continuem amb el programa
 	
 	RETURN
+	
+GET_GRAUS
+    MOVFF NUM_NOTES,NUM_NOTES_AUXILIAR
+    LOOP_GRAUS_FLASH
+        TBLRD*+
+        DECFSZ NUM_NOTES_AUXILIAR,1,0
+        GOTO LOOP_GRAUS_FLASH
+    TBLRD*+
+    MOVFF TABLAT,QUANTITAT_GRAUS
+RETURN
 ;***********
 ;START GAME  
 ;***********
 START_GAME
+    CALL VES_FLASH
+    CALL GET_GRAUS
+    BSF FLAGS, 2, 0
     ; Comprovar si hi ha notes
     CALL COMPROVAR_NOTES
     LOOP_START_GAME
 	; Llegim la posició
-	MOVF POSTINC0       ; Movem el registre al work
+	MOVF POSTINC1, 0, 0       ; Movem el registre al work
 	MOVWF NOTA_LLEGIDA, 0
+	MOVFF NOTA_LLEGIDA, ADRESH
 	MOVWF DURATION_LLEGIDA, 0
 	; Mostrem la nota al 7-segments
 	CALL MOSTRAR_NOTA
@@ -777,12 +888,11 @@ START_GAME
 	CALL ESPERAR_TEMPS
 
 	; Comprovar si hi ha notes per llegir
-
-	MOVF NUM_NOTES, 0   ; Movem num_notes al w
-	SUBWF FSR0L,0       ; Restem el número de notes al punter de lectura de la RAM
+	MOVF NUM_NOTES, 0, 0   ; Movem num_notes al w
+	SUBWF FSR1L,0       ; Restem el número de notes al punter de lectura de la RAM
 	BTFSS STATUS, Z, 0   ; Comprovem -> STATUS = 1 : Són iguals -> Si son iguals vol dir que s'ha acabat
 	GOTO LOOP_START_GAME
-
+	
     RAM_BUIDA_END
 	CALL MOSTRA_FINAL
 	GOTO RAM_BUIDA_END
@@ -824,6 +934,7 @@ GUARDAR_NOTA_RAM
     MOVLW b'00111111'
     ANDWF LECTURA,0,0           ; Multipliquem la màscara pel portc i guardem el resultat a w
     ; Guardem la nota
+    MOVFF LECTURA, ADRESH
     MOVWF POSTINC0,0         ; Escriure RAM (FSR1)
     
     RETURN
@@ -832,19 +943,96 @@ GUARDAR_NOTA_RAM
 ;SERVOMOTOR
 ;****************
 SERVO
-    BCF FLAGS, 2, 0 ;Posem a 0 el bit 2 de la variable Flags, que indica que s'ha d'activar el servo
+    ;calcular servo
+    ;quantitat totals de notes -> NUM_NOTES
+    ;Notes correctes -> necesito una variable
+    ;Agafo el valor del servo de la flash (num_notes/valor flash = graus minims)
+    ;faig un move d'aquell graus minims * notes correctes al servo -> Necesito una altra varaible
+    
+    INCF INTERRUPCIONS_FLASH, 1, 0
+    MOVLW .40 ;20ms/500us = 40
+    SUBWF INTERRUPCIONS_FLASH, 0, 0
+    BTFSS STATUS, Z, 0
+    RETURN
+    
+    ;Han passat 20ms
+    
+    CLRF INTERRUPCIONS_FLASH
+    BSF LATA, 5, 0
+    CALL ESPERA_SERVO
+    BCF LATA, 5, 0
+    RETURN
+    
+ESPERA_SERVO
+    CALL ESPERA_05MS
+    MOVLW .0
+    SUBWF NOTES_CORRECTES,0,0
+    BTFSC STATUS,Z,0
+    RETURN 
+    
+    ;Hi ha notes correctes (minim una)
+    MOVFF NOTES_CORRECTES, NOTES_CORRECTES_AUX
+    LOOP_STEPS
+	CALL STEP
+	DECFSZ NOTES_CORRECTES_AUX, 1, 0
+	GOTO LOOP_STEPS
+    RETURN
+    
+ESPERA_05MS
+    ;Tosc = 1 / 40M = 25ns
+    ;Cicle màquina = 4*Tosc = 4*25ns = 100ns
+    ;Cicles=0.5m/100ns=5000 -> molt -> 0.1m/100ns=1000 (5x1000)
+    CALL COMPTA_1000_CICLES
+    CALL COMPTA_1000_CICLES
+    CALL COMPTA_1000_CICLES
+    CALL COMPTA_1000_CICLES
+    CALL COMPTA_1000_CICLES
+    RETURN
+    
+STEP
+    MOVFF GRAUS, GARUS_AUX
+    LOOP_STEP_GRAUS
+	CALL ESPERA_11US ;11US -> 1grau 
+	DECFSZ GARUS_AUX, 1, 0
+	GOTO LOOP_STEP_GRAUS
+    RETURN
+    
+ESPERA_11US
+    ;Tosc = 1 / 40M = 25ns
+    ;Cicle màquina = 4*Tosc = 4*25ns = 100ns
+    ;Cicles=11US/100NS = 110
+    MOVLW .32 ;1CICLE
+    MOVWF COMPT_ESPERA_11US, 0 ;1CICLE
+    LOOP_ESPERA_11us
+	;110 - 6 = 104
+	;3x = 102 (+2NOP)
+	;x = 34
+	DECFSZ COMPT_ESPERA_11US, 1, 0 ;3CICLES
+	GOTO LOOP_ESPERA_11us ;2CICLES
+	NOP
+	NOP
     RETURN
 ;****************
 ;ESPERA PER L'ACK
 ;****************
 ALTAVEU
-    BCF FLAGS, 3, 0 ;Posem a 0 el bit 3 de la variable Flags, que indica que s'ha d'activar l'altaveu
+
+    ;Te un comptador de tick i si arriba a la quantiat de ticks que te el dc fer btg de la sortida
+    INCF TICKS_ALTAVEU
+    MOVF TICKS_ALTAVEU, 0, 0
+    SUBWF DC_ALTAVEU, 0, 0
+    BTFSS STATUS, Z, 0
+    RETURN
+    
+    BTG LATC, 7, 0
+    CLRF TICKS_ALTAVEU
+    
     RETURN
 ;***************
 ;PROCES NEWNOTE
 ;***************
 NEW_NOTE
-    BCF INTCON,INT0IF,0   ; Netejem el flag de la interrupció
+    BCF INTCON,INT0IF,0   ; Netejem el flag de la interrupció    
     ;Guardar la nota a la RAM
     CALL GUARDAR_NOTA_RAM
     ;Incrementar num notes
@@ -883,6 +1071,10 @@ ACTION_TMR0
 
     BTFSC FLAGS, 5, 0 ;Mirem el Flag de comptar duracio
     CALL COMPTAR_DURATION
+    
+    BTFSC FLAGS, 7, 0 ;Espera Trigger
+    CALL ESPERA_TRIGGER
+    
     RETURN
 ;------------------------------------FUNCIONS PRINCIPALS------------------------------------
 ;******************************
@@ -900,7 +1092,19 @@ HIGH_RSI
     CALL ACTIVAR_START_GAME
     
     RETFIE FAST
-    
+ 
+INIT_FLASH
+    BSF EECON1,EEPGD,0
+    BCF EECON1,CFGS,0
+RETURN
+ 
+VES_FLASH
+    CLRF TBLPTRU,0
+    MOVLW HIGH(TAULA)
+    MOVWF TBLPTRH,0
+    MOVLW LOW(TAULA)
+    MOVWF TBLPTRL,0
+RETURN
 ;********************
 ;MAIN 
 ;********************
@@ -912,7 +1116,7 @@ MAIN
     CALL PUNTER_RAM     ; INICIALITZEM ELS PUNTERS DE LA RAM
     CALL INIT_TMR0      ; INICIALITZEM EL TMR0 PER INTERRUMPIR
     CALL CARREGA_TMR0   ; CARREGA EL TMR0 PER GENERAR LA INTERRUPCIÓ
-
+    CALL INIT_FLASH
     CLRF FSR1L, 0 ; Posicionem el punter de lectura de la RAM a la primera posició
     
     LOOP
@@ -920,7 +1124,7 @@ MAIN
 		    ;FEM STARTGAME PER INTERRUPCIÓ -> INT1IE
     BTFSC FLAGS,0,0     ; MIREM EL BIT 0 DEL REGISTRE QUE INDICA QUE START GAME ES ACTIU
     CALL START_GAME
-    
+    ;Un tick son 500us adalt i 500us abaix
     GOTO LOOP
 
     END
