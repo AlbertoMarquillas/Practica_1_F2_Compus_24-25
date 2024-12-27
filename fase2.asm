@@ -674,8 +674,8 @@ ESPERAR_TEMPS
 	CALL INIT_COMPTADOR_TRIGGER;Uns 100ms
 	
 	;Desactivo interrupcions
-	BCF INTCON, 6, 0
-	BCF INTCON, 7, 0
+;	BCF INTCON, 6, 0
+;	BCF INTCON, 7, 0
 	CALL GENERAR_TRIGGER ;Pot donar problemes
 	LOOP_ESPERAR_ULTRASONS
 	    ;1. RB2 amb echo
@@ -695,8 +695,8 @@ ESPERAR_TEMPS
 		GOTO REBRE_NOTA
 		;PORTB2 = 0
 		;Activo interrupcions
-		BCF INTCON, 6, 0
-		BCF INTCON, 7, 0
+		BSF INTCON, 6, 0
+		BSF INTCON, 7, 0
 		;VEURE QUINA NOTA ES
 		CALL TROBAR_NOTA
 		;DESPRES GESTIO DE LEDS
@@ -1105,6 +1105,13 @@ VES_FLASH
     MOVLW LOW(TAULA)
     MOVWF TBLPTRL,0
 RETURN
+    
+INIT_SERVO
+    BSF LATA, 5, 0
+    CALL ESPERA_05MS
+    BCF LATA, 5, 0
+    RETURN
+    
 ;********************
 ;MAIN 
 ;********************
@@ -1118,7 +1125,7 @@ MAIN
     CALL CARREGA_TMR0   ; CARREGA EL TMR0 PER GENERAR LA INTERRUPCIÓ
     CALL INIT_FLASH
     CLRF FSR1L, 0 ; Posicionem el punter de lectura de la RAM a la primera posició
-    
+    CALL INIT_SERVO
     LOOP
 		    ; FEM NEWNOTE PER INTERRUPCIONS -> INT0IE
 		    ;FEM STARTGAME PER INTERRUPCIÓ -> INT1IE
