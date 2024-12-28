@@ -47,7 +47,10 @@ NOTES_CORRECTE EQU 0X0024
 NOTES_CORRECTES EQU 0X0025
 QUANTITAT_GRAUS EQU 0X0026
 NUM_NOTES_AUXILIAR EQU 0X0027
-TAULA EQU 0X0040
+FI_20MS EQU 0x0028
+ 
+
+TAULA EQU 0X0060
  
 ;******************************
 ;VECTORS DE RESET I INTERRUPCIÓ 
@@ -144,6 +147,7 @@ INIT_VARS
     CLRF DC_ALTAVEU
     CLRF NOTA_TROBADA
     CLRF COMPTADOR_TRIGGER
+    CLRF FI_20MS
     
     BCF FLAGS_INT, 0, 0 ;Posem a 0 el bit 0 de la variable Flags_Int -> Indica quan s'han comptat els 3 segons    
     BCF FLAGS_INT, 1, 0 ;Posem a 0 el bit 1 de la variable Flags_Int -> Indica quan s'ha comptat duracio
@@ -469,7 +473,17 @@ MOSTRA_FINAL
     BCF LATC, 7, 0;Apagar altaveu
     ;Servo? GameScore por servo
     LOOP_MOSTRA_FINAL
+        BSF FLAGS, 2, 0
+        CLRF INTERRUPCIONS_FLASH
+	BSF LATA, 5, 0
+	CALL ESPERA_SERVO
+	BCF LATA, 5, 0
+	LOOP_ESPERA_SERVO
+	    BTFSC FLAGS, 2, 0
+	    GOTO LOOP_ESPERA_SERVO
 	GOTO LOOP_MOSTRA_FINAL
+	
+	
     RETURN
 ;------------------------------------FUNCIONS PER NOTA OK------------------------------------
 NOTA_IGUALS
@@ -666,17 +680,19 @@ ESPERAR_TEMPS
     ;2. duracio correcte (1, 2, 3 s)
     ;3. durant la duracio s'hagi mogut la ma (duracio incorrecte)
     LOOP_MOSTRAR_DURATION
+	
+	BSF FLAGS, 2, 0
+        CLRF INTERRUPCIONS_FLASH
+	BSF LATA, 5, 0
+	CALL ESPERA_SERVO
+	BCF LATA, 5, 0
+
 	;Fer ultrasons
 	;Interrupcio Echo (Flanc de pujada)
 	;enerar flanc i esperar resposta
 	CLRF COMPT_CM
 	
-	CALL INIT_COMPTADOR_TRIGGER;Uns 100ms
-	
-	;Desactivo interrupcions
-;	BCF INTCON, 6, 0
-;	BCF INTCON, 7, 0
-	CALL GENERAR_TRIGGER ;Pot donar problemes
+	CALL GENERAR_TRIGGER ;Pot donar problemes (es fa cada 20ms, la podriem fer cada 5periodes si dones error)
 	LOOP_ESPERAR_ULTRASONS
 	    ;1. RB2 amb echo
  	    BTFSC PORTB, 2, 0 ;Miro si RB2 (Echo) es actiu -> indica que hi ha eco
@@ -684,6 +700,10 @@ ESPERAR_TEMPS
 	    ;2. 3s && !RB2 -> Flag_int s'ha activat
 	    BTFSC FLAGS_INT, 0, 0 ;Comprobo si FLAG_INT<0>=1
 	    GOTO FINAL; Si FLAG_INT<0>=1 vol dir que han passat 3 segons, per tant ja no seguim comptant
+	    
+	    BTFSC FLAGS, 2, 0 ;(Si han passat 20ms vol dir que no rebem red del echo)
+	    GOTO LOOP_MOSTRAR_DURATION
+	    
 	    GOTO LOOP_ESPERAR_ULTRASONS
 	    REBRE_NOTA
 		;COMPTAR CM I DECODIFICAR NOTA
@@ -694,12 +714,12 @@ ESPERAR_TEMPS
 		;HAN PASSAT 60US I PORTB2=1, SUMO 1CM (BUCLE FINS QUE JA NO, PORTB2=0)
 		GOTO REBRE_NOTA
 		;PORTB2 = 0
-		;Activo interrupcions
-		BSF INTCON, 6, 0
-		BSF INTCON, 7, 0
 		;VEURE QUINA NOTA ES
 		CALL TROBAR_NOTA
 		;DESPRES GESTIO DE LEDS
+		LOOP_ESPERA_SERVO_ULTRASONS
+		    BTFSC FLAGS, 2, 0 ;Esperar 20ms del periode del servo
+		    GOTO LOOP_ESPERA_SERVO_ULTRASONS
 	BTFSS FLAGS_INT, 0, 0 ;Miro el flag que genera la meva interrupció
 	GOTO LOOP_MOSTRAR_DURATION ;Esto lo he de mirar bien
     FINAL
@@ -714,27 +734,27 @@ MOSTRAR_NOTA
 	ANDWF NOTA_LLEGIDA, 1, 0          ; Apliquem la màscara i guardem la nota
 	; Comprovar quina nota és
 	MOVLW b'00000000'          ; Posem un 0 al w
-	SUBWF NOTA_LLEGIDA, 0, 0      ; Restem per comparar
+	SUBWF NOTA_LLEGIDA, 0, 0   ; Restem per comparar
 	BTFSC STATUS, Z, 0         ; Si STATUS = 0 -> SALTA; Si STATUS = 1 -> NOTA_LLEGIDA = 0
 	CALL NOTA_0
 
 	MOVLW b'00000001'          ; Posem un 1 al w
-	SUBWF NOTA_LLEGIDA, 0, 0      ; Restem per comparar
+	SUBWF NOTA_LLEGIDA, 0, 0   ; Restem per comparar
 	BTFSC STATUS, Z, 0         ; Si STATUS = 0 -> SALTA; Si STATUS = 1 -> NOTA_LLEGIDA = 1
 	CALL NOTA_1
 
 	MOVLW b'00000010'          ; Posem un 2 al w
-	SUBWF NOTA_LLEGIDA, 0, 0      ; Restem per comparar
+	SUBWF NOTA_LLEGIDA, 0, 0   ; Restem per comparar
 	BTFSC STATUS, Z, 0         ; Si STATUS = 0 -> SALTA; Si STATUS = 1 -> NOTA_LLEGIDA = 2
 	CALL NOTA_2
 
 	MOVLW b'00000011'          ; Posem un 3 al w
-	SUBWF NOTA_LLEGIDA, 0, 0      ; Restem per comparar
+	SUBWF NOTA_LLEGIDA, 0, 0   ; Restem per comparar
 	BTFSC STATUS, Z, 0         ; Si STATUS = 0 -> SALTA; Si STATUS = 1 -> NOTA_LLEGIDA = 3
 	CALL NOTA_3
 
 	MOVLW b'00000100'          ; Posem un 4 al w
-	SUBWF NOTA_LLEGIDA, 0, 0      ; Restem per comparar
+	SUBWF NOTA_LLEGIDA, 0, 0   ; Restem per comparar
 	BTFSC STATUS, Z, 0         ; Si STATUS = 0 -> SALTA; Si STATUS = 1 -> NOTA_LLEGIDA = 4
 	CALL NOTA_4
 
@@ -744,7 +764,7 @@ MOSTRAR_NOTA
 	CALL NOTA_5
 
 	MOVLW b'00000110'          ; Posem un 6 al w
-	SUBWF NOTA_LLEGIDA, 0, 0      ; Restem per comparar
+	SUBWF NOTA_LLEGIDA, 0, 0   ; Restem per comparar
 	BTFSC STATUS, Z, 0         ; Si STATUS = 0 -> SALTA; Si STATUS = 1 -> NOTA_LLEGIDA = 6
 	CALL NOTA_6
 	
@@ -957,10 +977,8 @@ SERVO
     
     ;Han passat 20ms
     
-    CLRF INTERRUPCIONS_FLASH
-    BSF LATA, 5, 0
-    CALL ESPERA_SERVO
-    BCF LATA, 5, 0
+    BCF FLAGS, 2, 0
+    
     RETURN
     
 ESPERA_SERVO
@@ -1106,12 +1124,6 @@ VES_FLASH
     MOVWF TBLPTRL,0
 RETURN
     
-INIT_SERVO
-    BSF LATA, 5, 0
-    CALL ESPERA_05MS
-    BCF LATA, 5, 0
-    RETURN
-    
 ;********************
 ;MAIN 
 ;********************
@@ -1125,7 +1137,7 @@ MAIN
     CALL CARREGA_TMR0   ; CARREGA EL TMR0 PER GENERAR LA INTERRUPCIÓ
     CALL INIT_FLASH
     CLRF FSR1L, 0 ; Posicionem el punter de lectura de la RAM a la primera posició
-    CALL INIT_SERVO
+
     LOOP
 		    ; FEM NEWNOTE PER INTERRUPCIONS -> INT0IE
 		    ;FEM STARTGAME PER INTERRUPCIÓ -> INT1IE
