@@ -129,26 +129,36 @@ INIT_VARS
 
     CLRF NUM_NOTES
     CLRF LECTURA 
-    CLRF COMPT_ESPERA_ACK 
+    CLRF COMPT_ESPERA_ACK ;Comptador per generar ACK
     CLRF NOTA_LLEGIDA 
     CLRF DURATION_LLEGIDA 
-    CLRF COMPTADOR_500MS_L
-    CLRF COMPTADOR_500MS_H 
-    CLRF COMPTADOR_DURATION_L
-    CLRF COMPTADOR_DURATION_H 
-    CLRF COMPTADOR_3S_L
+    CLRF COMPTADOR_3S_L 
     CLRF COMPTADOR_3S_H 
-    CLRF COMPTADOR_2S_L
-    CLRF COMPTADOR_2S_H 
-    CLRF COMPT_ACK
-    CLRF COMPT_CM
-    CLRF COMPT_ESPERA_60US
-    CLRF COMPT_ESPERA_TRIGGER
-    CLRF DC_ALTAVEU
-    CLRF NOTA_TROBADA
-    CLRF COMPTADOR_TRIGGER
-    CLRF FI_20MS
-    
+    CLRF COMPTADOR_500MS_L  
+    CLRF COMPTADOR_500MS_H  
+    CLRF COMPT_ESPERA_TRIGGER   ;Comptador per generar trigger
+    CLRF COMPTADOR_DURATION_H  
+    CLRF COMPTADOR_DURATION_L  
+    CLRF COMPT_ACK  
+    CLRF COMPT_CM  
+    CLRF COMPT_ESPERA_60US  
+    CLRF NOTA_TROBADA  
+    CLRF COMPTADOR_2S_L  
+    CLRF COMPTADOR_2S_H  
+    CLRF COMPTADOR_TRIGGER  
+    CLRF TICKS_ALTAVEU  
+    CLRF PWM_ALTAVEU  
+    CLRF DC_ALTAVEU  
+    CLRF NOTES_CORRECTES_AUX  
+    CLRF COMPT_ESPERA_11US  
+    CLRF GARUS_AUX  
+    CLRF GRAUS  
+    CLRF INTERRUPCIONS_FLASH  
+    CLRF NOTES_CORRECTE  
+    CLRF NOTES_CORRECTES  
+    CLRF QUANTITAT_GRAUS  
+    CLRF NUM_NOTES_AUXILIAR  
+
     BCF FLAGS_INT, 0, 0 ;Posem a 0 el bit 0 de la variable Flags_Int -> Indica quan s'han comptat els 3 segons    
     BCF FLAGS_INT, 1, 0 ;Posem a 0 el bit 1 de la variable Flags_Int -> Indica quan s'ha comptat duracio
     BCF FLAGS_INT, 3, 0 ;Posem a 0 el bit 3 de la variable Flags_Int -> Indica quan s'han comptat els 500 milisegons
@@ -297,7 +307,7 @@ INIT_COMPT_3S
 ;****************
 ;FUNCIO QUE COMPTA 1000 CICLES MAQUINA
 ;****************
-COMPTA_1000_CICLES ;Espera 2ms
+COMPTA_ACK ;Espera 2ms
     ;Tosc = 1 / 40M = 25ns
     ;Cicle màquina = 4*Tosc = 4*25ns = 100ns
     ;Cicles=2m/100ns=20000 (20 REPETICIONS DE 1000 CICLES)
@@ -315,6 +325,21 @@ COMPTA_1000_CICLES ;Espera 2ms
 	DECFSZ COMPT_ESPERA_ACK, 1, 0 ;3CICLES
 	GOTO LOOP_ESPERA_ACK ;2CICLES
     RETURN
+    
+COMPTA_1000_CICLES
+    MOVLW .110
+    MOVWF COMPT_ESPERA_ACK,0
+    LOOP_ESPERA_1000
+	NOP
+	NOP
+	NOP
+	NOP
+	NOP
+	NOP
+	DECFSZ COMPT_ESPERA_ACK,1,0
+	GOTO LOOP_ESPERA_1000
+    
+RETURN
     
 ;*****************
 ;COMPTAR 3 SEGONS
@@ -468,10 +493,9 @@ ESPERA_INCORRECT
 ;*****************************************
 MOSTRA_FINAL
     MOVLW b'11111101'
-    MOVWF PORTD, 0
+    MOVWF LATD, 0
     BCF FLAGS, 3, 0 ;Desactivar Altaveu
     BCF LATC, 7, 0;Apagar altaveu
-    ;Servo? GameScore por servo
     LOOP_MOSTRA_FINAL
         BSF FLAGS, 2, 0
         CLRF INTERRUPCIONS_FLASH
@@ -496,7 +520,7 @@ NOTA_IGUALS
     NO_500MS
 	BTFSS FLAGS, 5, 0 ;Flag de comptar duració
 	BSF FLAGS, 4, 0 ;Activo 500ms
-	
+	CALL INIT_COMPT_500MS
     
     RETURN
 ;------------------------------------FUNCIONS PER NOTA KO------------------------------------
@@ -519,8 +543,9 @@ NOTA_KO
     INTERROMP_DURACIO
 	BCF FLAGS, 5, 0 ; DESACTIVO EL COMPTADOR DE DURACIO
 	BSF LATA, 4, 0 ;ACTIVO LED INCORRECTE
-	CALL ESPERA_INCORRECT
-	BCF LATA, 4, 0
+	BCF LATA,3,0
+	;CALL ESPERA_INCORRECT
+	;BCF LATA, 4, 0
 	BSF FLAGS_INT, 0, 0 ;ACTIVO FLAGS INT PER FER LA SEGUENT NOTA
      
     RETURN
@@ -595,7 +620,6 @@ ACTIVA_ALTAVEU
 TROBAR_NOTA
     CALL ACTIVA_ALTAVEU
     MOVLW .10 ;NOTA MES PETITA QUE 10
-    MOVFF COMPT_CM, ADRESH
     SUBWF COMPT_CM, 0, 0
     BTFSS STATUS, C, 0
     GOTO NOTA_0_ULTRASONS    
@@ -680,9 +704,8 @@ ESPERAR_TEMPS
     ;2. duracio correcte (1, 2, 3 s)
     ;3. durant la duracio s'hagi mogut la ma (duracio incorrecte)
     LOOP_MOSTRAR_DURATION
-	
 	BSF FLAGS, 2, 0
-        CLRF INTERRUPCIONS_FLASH
+	CLRF INTERRUPCIONS_FLASH
 	BSF LATA, 5, 0
 	CALL ESPERA_SERVO
 	BCF LATA, 5, 0
@@ -701,7 +724,7 @@ ESPERAR_TEMPS
 	    BTFSC FLAGS_INT, 0, 0 ;Comprobo si FLAG_INT<0>=1
 	    GOTO FINAL; Si FLAG_INT<0>=1 vol dir que han passat 3 segons, per tant ja no seguim comptant
 	    
-	    BTFSC FLAGS, 2, 0 ;(Si han passat 20ms vol dir que no rebem red del echo)
+	    BTFSS FLAGS, 2, 0 ;(Si han passat 20ms vol dir que no rebem res del echo)
 	    GOTO LOOP_MOSTRAR_DURATION
 	    
 	    GOTO LOOP_ESPERAR_ULTRASONS
@@ -880,8 +903,8 @@ GET_GRAUS
         TBLRD*+
         DECFSZ NUM_NOTES_AUXILIAR,1,0
         GOTO LOOP_GRAUS_FLASH
-    TBLRD*+
-    MOVFF TABLAT,QUANTITAT_GRAUS
+    TBLRD*
+    MOVFF TABLAT,GRAUS
 RETURN
 ;***********
 ;START GAME  
@@ -896,7 +919,6 @@ START_GAME
 	; Llegim la posició
 	MOVF POSTINC1, 0, 0       ; Movem el registre al work
 	MOVWF NOTA_LLEGIDA, 0
-	MOVFF NOTA_LLEGIDA, ADRESH
 	MOVWF DURATION_LLEGIDA, 0
 	; Mostrem la nota al 7-segments
 	CALL MOSTRAR_NOTA
@@ -909,7 +931,7 @@ START_GAME
 
 	; Comprovar si hi ha notes per llegir
 	MOVF NUM_NOTES, 0, 0   ; Movem num_notes al w
-	SUBWF FSR1L,0       ; Restem el número de notes al punter de lectura de la RAM
+	SUBWF FSR1L,0, 0       ; Restem el número de notes al punter de lectura de la RAM
 	BTFSS STATUS, Z, 0   ; Comprovem -> STATUS = 1 : Són iguals -> Si son iguals vol dir que s'ha acabat
 	GOTO LOOP_START_GAME
 	
@@ -926,7 +948,7 @@ ESPERA_ACK
     MOVLW .20
     MOVWF COMPT_ACK, 0
     LOOP_ACK
-	CALL COMPTA_1000_CICLES
+	CALL COMPTA_ACK
 	DECFSZ COMPT_ACK, 1, 0
 	GOTO LOOP_ACK
     RETURN
@@ -954,7 +976,6 @@ GUARDAR_NOTA_RAM
     MOVLW b'00111111'
     ANDWF LECTURA,0,0           ; Multipliquem la màscara pel portc i guardem el resultat a w
     ; Guardem la nota
-    MOVFF LECTURA, ADRESH
     MOVWF POSTINC0,0         ; Escriure RAM (FSR1)
     
     RETURN
@@ -1019,7 +1040,7 @@ ESPERA_11US
     ;Tosc = 1 / 40M = 25ns
     ;Cicle màquina = 4*Tosc = 4*25ns = 100ns
     ;Cicles=11US/100NS = 110
-    MOVLW .32 ;1CICLE
+    MOVLW .33 ;1CICLE
     MOVWF COMPT_ESPERA_11US, 0 ;1CICLE
     LOOP_ESPERA_11us
 	;110 - 6 = 104
@@ -1036,7 +1057,7 @@ ESPERA_11US
 ALTAVEU
 
     ;Te un comptador de tick i si arriba a la quantiat de ticks que te el dc fer btg de la sortida
-    INCF TICKS_ALTAVEU
+    INCF TICKS_ALTAVEU,1,0
     MOVF TICKS_ALTAVEU, 0, 0
     SUBWF DC_ALTAVEU, 0, 0
     BTFSS STATUS, Z, 0
@@ -1137,7 +1158,7 @@ MAIN
     CALL CARREGA_TMR0   ; CARREGA EL TMR0 PER GENERAR LA INTERRUPCIÓ
     CALL INIT_FLASH
     CLRF FSR1L, 0 ; Posicionem el punter de lectura de la RAM a la primera posició
-
+    
     LOOP
 		    ; FEM NEWNOTE PER INTERRUPCIONS -> INT0IE
 		    ;FEM STARTGAME PER INTERRUPCIÓ -> INT1IE
